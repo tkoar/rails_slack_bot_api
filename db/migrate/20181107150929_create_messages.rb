@@ -5,6 +5,7 @@ class CreateMessages < ActiveRecord::Migration[5.2]
       t.string :client_msg_id
       t.string :user_slack_id
       t.string :user_name
+      t.references :channel
       t.references :user
       t.timestamps
     end

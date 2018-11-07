@@ -1,33 +1,59 @@
 class MessagesController < ApplicationController
 
-  def get_all_messages
-    channel = 'CDXMRPKPX' || params['channel']
-    req = RestClient.get("#{SLACK_API_URL}channels.history?token=#{SLACK_TOKEN}&channel=#{channel}")
-    json = JSON.parse(req)
-    messages = json['messages']
-    messages.each do |msg|
-      user = User.find_by(slack_id: msg['user'])
-      if user
-        message_info = message_obj(msg, user)
-        create_message(message_info)
-      else
-        user_info = get_user_info(SLACK_TOKEN, msg['user'])
-        new_user = create_user(msg['user'], user_info)
-        message_info = message_obj(msg, new_user)
-        create_message(message_info)
-      end
-    end
+  def show
+    update_messages()
     render json: Message.all()
   end
 
-  def create_message(message_info)
-    message = Message.find_by(client_msg_id: message_info['client_msg_id'])
-    if (message && (message.text != message_info['text']))
-      new_edit_history = EditHistory.create({text: message.text, message_id: message.id})
-      message.update(message_info)
-    elsif !message
-      Message.create(message_info)
+  def update_messages
+    # right now, need to manually create channels from CL
+    Channel.all().each do |channel|
+      # request channel specific messages from slack API
+      messages = get_messages(channel)
+      # only selecting messages that have been created since the last update (last channel poll)
+      messages_not_in_db = messages.select{ |msg| msg['ts'].to_f > channel.last_message_timestamp.to_f }
+      messages_not_in_db.each do |msg|
+        find_or_create_messages(msg, channel)
+      end
+      last_message = messages.max_by{ |msg| msg['ts'] }
+      channel.update({last_message_timestamp: last_message['ts']})
     end
+  end
+
+  def get_messages(channel)
+    # need to get own slack token from slack API for the workspace that the bot will be installed in
+    # need to also request the scoping rights associated with accessing a public channel's messages AND
+    # the scope for reading information about a user
+    req = RestClient.get("#{SLACK_API_URL}channels.history?token=#{SLACK_TOKEN}&channel=#{channel.slack_channel_id}")
+    json = JSON.parse(req)
+    messages = json['messages']
+    messages
+  end
+
+  def find_or_create_messages(msg, channel)
+    user = User.find_by(slack_id: msg['user'])
+    if user
+      message_info = message_obj(msg, user, channel)
+      create_message(message_info)
+    else
+      user_info = get_user_info(SLACK_TOKEN, msg['user'])
+      new_user = create_user(msg['user'], user_info)
+      message_info = message_obj(msg, new_user, channel)
+      create_message(message_info)
+    end
+  end
+
+  def create_message(message_info)
+    # --------- only need this code if trying to save message edit histories -----------
+    # message = Message.find_by(client_msg_id: message_info['client_msg_id'])
+    # if (message && (message.text != message_info['text']))
+    #   new_edit_history = EditHistory.create({text: message.text, message_id: message.id})
+    #   message.update(message_info)
+    # elsif !message
+    #   Message.create(message_info)
+    # end
+    # ----------------------------------------------------------------------------------
+    Message.create(message_info)
   end
 
   def create_user(slack_id, user_info)
@@ -41,7 +67,7 @@ class MessagesController < ApplicationController
     return json['user']
   end
 
-  def message_obj(message_json, user_obj)
+  def message_obj(message_json, user_obj, channel_obj)
     new_obj = {}
     new_obj["user_slack_id"] = message_json["user"]
     new_obj["text"] = message_json["text"]
@@ -49,6 +75,7 @@ class MessagesController < ApplicationController
     new_obj["ts"] = message_json["ts"]
     new_obj['user_id'] = user_obj.id
     new_obj['user_name'] = user_obj.user_name
+    new_obj['channel_id'] = channel_obj.id
     new_obj['thread_ts'] = message_json['thread_ts']
     new_obj['slack_parent_user_id'] = message_json['parent_user_id']
     return new_obj
@@ -56,6 +83,19 @@ class MessagesController < ApplicationController
 
 
 end
+
+# -------- SCOPE NEEDED FROM WORKSPACE --------
+# CONVERSATIONS	---------
+# --- channels:history --- Access user’s public channels
+# --- channels:read --- Access information about user’s public channels
+# --- chat:write:bot --- Send messages as bot-bot
+# USERS	-----------------
+# --- users:read ---Access your workspace’s profile information
+# --- users.profile:read --- Access user’s profile and workspace profile fields
+
+
+
+
 
 # ----- what messages json looks like ------
 # {
@@ -72,15 +112,6 @@ end
 # }
 
 
-
-# -------- SCOPE NEEDED --------
-# CONVERSATIONS	---------
-# --- channels:history --- Access user’s public channels
-# --- channels:read --- Access information about user’s public channels
-# --- chat:write:bot --- Send messages as bot-bot
-# USERS	-----------------
-# --- users:read ---Access your workspace’s profile information
-# --- users.profile:read --- Access user’s profile and workspace profile fields
 
 # example response from channels.history
 # {"ok"=>true,

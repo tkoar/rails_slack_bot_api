@@ -10,10 +10,18 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2018_11_07_170712) do
+ActiveRecord::Schema.define(version: 2018_11_07_194339) do
 
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
+
+  create_table "channels", force: :cascade do |t|
+    t.string "name"
+    t.string "slack_channel_id"
+    t.string "last_message_timestamp"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+  end
 
   create_table "edit_histories", force: :cascade do |t|
     t.string "text"
@@ -28,12 +36,14 @@ ActiveRecord::Schema.define(version: 2018_11_07_170712) do
     t.string "client_msg_id"
     t.string "user_slack_id"
     t.string "user_name"
+    t.bigint "channel_id"
     t.bigint "user_id"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.string "ts"
     t.string "thread_ts"
     t.string "slack_parent_user_id"
+    t.index ["channel_id"], name: "index_messages_on_channel_id"
     t.index ["user_id"], name: "index_messages_on_user_id"
   end
 
